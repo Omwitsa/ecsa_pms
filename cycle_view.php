@@ -12,7 +12,7 @@ if (!$cycle) {
     redirect('cycles.php');
 }
 
-$ks = $pdo->prepare('SELECT * FROM cycle_kpis WHERE cycle_id = ? ORDER BY category, title');
+$ks = $pdo->prepare('SELECT ck.* FROM cycle_kpis ck WHERE ck.cycle_id = ?' . ck_order());
 $ks->execute([$id]);
 $ckpis = $ks->fetchAll();
 $totalWeight = array_sum(array_map(fn($k) => (float) $k['weight'], $ckpis));
@@ -27,15 +27,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$ckpis) {
             flash('Add at least one KPI before opening the cycle.', 'error');
         } elseif (abs($totalWeight - 100) > 0.01) {
-            flash('KPI weights must total 100% (currently ' . fmt_num($totalWeight) . '%). Edit the cycle to fix them.', 'error');
+            flash('KPI weights must total 100 (currently ' . fmt_num($totalWeight) . '). Edit the cycle to fix them.', 'error');
         } elseif (!$people) {
             flash('There are no active employees or managers to appraise. Add users first.', 'error');
         } else {
             $pdo->beginTransaction();
             try {
                 // refresh KPI snapshot (title, category, scale) from the KPI library
-                $pdo->prepare('UPDATE cycle_kpis ck JOIN kpis k ON k.id = ck.kpi_id
-                               SET ck.title = k.title, ck.category = k.category, ck.scale_min = k.scale_min, ck.scale_max = k.scale_max
+                $pdo->prepare('UPDATE cycle_kpis ck
+                               JOIN kpis k ON k.id = ck.kpi_id
+                               JOIN priorities p ON p.id = k.priority_id
+                               JOIN objectives o ON o.id = p.objective_id
+                               SET ck.perspective = o.perspective, ck.objective_code = o.code, ck.objective_title = o.title,
+                                   ck.priority_code = p.code, ck.priority_title = p.title, ck.key_actions = k.key_actions,
+                                   ck.title = k.title, ck.target = k.target, ck.scale_min = k.scale_min, ck.scale_max = k.scale_max,
+                                   ck.obj_sort = o.sort_order, ck.pri_sort = p.sort_order, ck.kpi_sort = k.sort_order
                                WHERE ck.cycle_id = ?')->execute([$id]);
                 $pdo->prepare("UPDATE appraisal_cycles SET status = 'open' WHERE id = ?")->execute([$id]);
 
@@ -77,7 +83,7 @@ $appraisals = $as->fetchAll();
 
 /* ---------- CSV export ---------- */
 if (($_GET['export'] ?? '') === 'csv') {
-    $sc = $pdo->prepare('SELECT s.appraisal_id, s.cycle_kpi_id, s.self_rating, s.manager_rating
+    $sc = $pdo->prepare('SELECT s.appraisal_id, s.cycle_kpi_id, s.actual, s.self_rating, s.manager_rating
                          FROM appraisal_scores s JOIN appraisals a ON a.id = s.appraisal_id WHERE a.cycle_id = ?');
     $sc->execute([$id]);
     $map = [];
@@ -94,8 +100,10 @@ if (($_GET['export'] ?? '') === 'csv') {
     fwrite($out, "\xEF\xBB\xBF");
     $head = ['Employee', 'Email', 'Job title', 'Reviewer', 'Status', 'Final score %', 'Band', 'Completed at'];
     foreach ($ckpis as $k) {
-        $head[] = $k['title'] . ' (self)';
-        $head[] = $k['title'] . ' (manager)';
+        $label = $k['perspective'] . ' | ' . $k['objective_code'] . ' | ' . $k['title'];
+        $head[] = $label . ' - Actual';
+        $head[] = $label . ' - Self rating';
+        $head[] = $label . ' - Manager rating (weighted x ' . fmt_num($k['weight']) . ')';
     }
     fputcsv($out, array_map($safe, $head));
     foreach ($appraisals as $a) {
@@ -103,6 +111,7 @@ if (($_GET['export'] ?? '') === 'csv') {
                 $a['final_score'] ?? '', $a['rating_band'] ?? '', $a['completed_at'] ?? ''];
         foreach ($ckpis as $k) {
             $s = $map[(int) $a['id']][(int) $k['id']] ?? null;
+            $row[] = $s['actual'] ?? '';
             $row[] = $s['self_rating'] ?? '';
             $row[] = $s['manager_rating'] ?? '';
         }
@@ -141,20 +150,35 @@ page_header($cycle['name'], 'cycles');
 <?php if ($cycle['description'] !== ''): ?><p><?= nl2br(e($cycle['description'])) ?></p><?php endif; ?>
 
 <?php if ($cycle['status'] === 'draft' && abs($totalWeight - 100) > 0.01): ?>
-  <div class="alert alert-warn">KPI weights total <?= e(fmt_num($totalWeight)) ?>%. They must total 100% before this cycle can be opened.</div>
+  <div class="alert alert-warn">KPI weights total <?= e(fmt_num($totalWeight)) ?>. They must total 100 before this cycle can be opened.</div>
 <?php endif; ?>
 
 <div class="card">
   <h2>KPIs in this cycle</h2>
+  <div class="table-wrap">
   <table>
-    <thead><tr><th>KPI</th><th>Category</th><th>Scale</th><th>Weight</th></tr></thead>
+    <thead><tr><th>Perspective</th><th>Objective › Priority</th><th>Measure / KPI</th><th>Target</th><th>Scale</th><th>Weight</th></tr></thead>
     <tbody>
     <?php foreach ($ckpis as $k): ?>
-      <tr><td><?= e($k['title']) ?></td><td><?= e($k['category']) ?></td><td><?= (int) $k['scale_min'] ?>–<?= (int) $k['scale_max'] ?></td><td><?= e(fmt_num($k['weight'])) ?>%</td></tr>
+      <tr>
+        <td class="small"><?= e($k['perspective']) ?></td>
+        <td class="small">Obj. <?= e($k['objective_code']) ?> › <?= e($k['priority_code']) ?></td>
+        <td><?= e($k['title']) ?></td>
+        <td class="small"><?= e($k['target'] ?: '—') ?></td>
+        <td><?= (int) $k['scale_min'] ?>–<?= (int) $k['scale_max'] ?></td>
+        <td><?= e(fmt_num($k['weight'])) ?></td>
+      </tr>
     <?php endforeach; ?>
     </tbody>
-    <tfoot><tr><td colspan="3" style="text-align:right"><strong>Total</strong></td><td><strong><?= e(fmt_num($totalWeight)) ?>%</strong></td></tr></tfoot>
+    <tfoot><tr><td colspan="5" style="text-align:right"><strong>Total</strong></td><td><strong><?= e(fmt_num($totalWeight)) ?></strong></td></tr></tfoot>
   </table>
+  </div>
+  <div class="chips">
+    <?php foreach (cfg('perspectives') as $pn):
+        $pw = 0.0; foreach ($ckpis as $k) { if ($k['perspective'] === $pn) { $pw += (float) $k['weight']; } } ?>
+      <span><?= e($pn) ?>: <strong><?= e(fmt_num($pw)) ?></strong></span>
+    <?php endforeach; ?>
+  </div>
 </div>
 
 <?php if ($cycle['status'] !== 'draft'): ?>

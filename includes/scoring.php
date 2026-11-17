@@ -1,29 +1,29 @@
 <?php
 /**
- * Scoring helpers.
- * Each rating is normalised to 0..1 using the KPI's own scale, so KPIs with different
- * scales can be combined. The final score is the weighted average, as a percentage.
+ * Scoring, following the scorecard sheet:
+ *   Weighted score (J) = Weight (H) x Actual performance (I, the rating)
+ * Final score % = sum(J) / sum(Weight x highest rating on the KPI's scale) x 100
  */
 
-function normalised_rating(int $rating, int $min, int $max): float
+function weighted_score(float $weight, $rating): ?float
 {
-    return ($rating - $min) / max(1, $max - $min);
+    return ($rating === null || $rating === '') ? null : $weight * (int) $rating;
 }
 
-/** @param array $rows each with weight, scale_min, scale_max, manager_rating */
+/** @param array $rows each with weight, scale_max, manager_rating */
 function compute_final_score(array $rows): ?float
 {
-    $weightSum = 0.0;
-    $acc = 0.0;
+    $got = 0.0;
+    $max = 0.0;
     foreach ($rows as $r) {
         if ($r['manager_rating'] === null || $r['manager_rating'] === '') {
             return null;
         }
         $w = (float) $r['weight'];
-        $weightSum += $w;
-        $acc += $w * normalised_rating((int) $r['manager_rating'], (int) $r['scale_min'], (int) $r['scale_max']);
+        $got += $w * (int) $r['manager_rating'];
+        $max += $w * (int) $r['scale_max'];
     }
-    return $weightSum > 0 ? round($acc / $weightSum * 100, 2) : null;
+    return $max > 0 ? round($got / $max * 100, 2) : null;
 }
 
 function band_for(float $score): string

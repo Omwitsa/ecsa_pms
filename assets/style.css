@@ -61,3 +61,22 @@ table.levels td{vertical-align:middle}
 tfoot td{border-bottom:0;padding-top:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .actions form{margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chips span{background:#eef3ff;color:#244fb5;border-radius:99px;padding:3px 12px;font-size:13px}
+/* scorecard table (sheet layout) */
+table.scorecard{min-width:1200px;font-size:13px;border:1px solid #9aa7bd}
+table.scorecard th{background:#0072bc;color:#fff;text-transform:none;letter-spacing:0;font-size:13px;border:1px solid #fff;vertical-align:middle}
+table.scorecard td{border:1px solid #9aa7bd;vertical-align:top;padding:6px 8px}
+table.scorecard td.persp{font-weight:700;background:#f7f9fd}
+table.scorecard td.num{text-align:right;white-space:nowrap}
+table.scorecard tr.subtotal td{background:#eaf1fb;font-weight:700;text-align:right}
+table.scorecard tr.total td{background:#dce8f8;font-weight:700;text-align:right}
+tr.grp td{background:#f3f6fb;font-size:13px;border-bottom:1px solid var(--line)}
+.objective{font-weight:700;margin:18px 0 4px}
+.priority{margin:0 0 8px;color:#33405a}
+details.inline{display:inline-block;position:relative}
+details.inline summary{list-style:none;cursor:pointer}
+details.inline summary::-webkit-details-marker{display:none}
+details.inline[open]{display:block;width:100%}
+.editbox{margin:10px 0;padding:12px;background:#f7f9fd;border:1px solid var(--line);border-radius:8px}
+details summary{cursor:pointer}

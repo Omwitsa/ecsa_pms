@@ -7,12 +7,25 @@ $total  = (int) $pdo->query('SELECT COUNT(*) FROM kpis')->fetchColumn();
 $active = (int) $pdo->query('SELECT COUNT(*) FROM kpis WHERE is_active = 1')->fetchColumn();
 $weight = (float) $pdo->query('SELECT COALESCE(SUM(weight),0) FROM kpis WHERE is_active = 1')->fetchColumn();
 $people = (int) $pdo->query("SELECT COUNT(*) FROM users WHERE is_active = 1 AND role IN ('employee','manager')")->fetchColumn();
-$cats   = $pdo->query('SELECT category, COUNT(*) AS n, SUM(weight) AS w
-                       FROM kpis WHERE is_active = 1 GROUP BY category ORDER BY category')->fetchAll();
+$rowsP  = $pdo->query('SELECT o.perspective, COUNT(DISTINCT o.id) AS objectives, COUNT(k.id) AS n, COALESCE(SUM(k.weight),0) AS w
+                       FROM objectives o
+                       LEFT JOIN priorities p ON p.objective_id = o.id
+                       LEFT JOIN kpis k ON k.priority_id = p.id AND k.is_active = 1
+                       GROUP BY o.perspective')->fetchAll();
 $open   = $pdo->query("SELECT c.id, c.name, c.end_date,
                          (SELECT COUNT(*) FROM appraisals a WHERE a.cycle_id = c.id) AS total,
                          (SELECT COUNT(*) FROM appraisals a WHERE a.cycle_id = c.id AND a.status = 'completed') AS done
                        FROM appraisal_cycles c WHERE c.status = 'open' ORDER BY c.end_date")->fetchAll();
+
+$persp = [];
+foreach (cfg('perspectives') as $p) {
+    $persp[$p] = ['objectives' => 0, 'n' => 0, 'w' => 0.0];
+}
+foreach ($rowsP as $r) {
+    if (isset($persp[$r['perspective']])) {
+        $persp[$r['perspective']] = ['objectives' => (int) $r['objectives'], 'n' => (int) $r['n'], 'w' => (float) $r['w']];
+    }
+}
 
 page_header('Dashboard', 'dashboard');
 $weightOk = abs($weight - 100) < 0.01;
@@ -20,7 +33,7 @@ $weightOk = abs($weight - 100) < 0.01;
 <h1>Dashboard</h1>
 <div class="stats">
   <div class="stat"><span><?= $active ?>/<?= $total ?></span>Active / total KPIs</div>
-  <div class="stat <?= $weightOk ? 'ok' : 'warn' ?>"><span><?= e(fmt_num($weight)) ?>%</span>Total active KPI weight</div>
+  <div class="stat <?= $weightOk ? 'ok' : 'warn' ?>"><span><?= e(fmt_num($weight)) ?></span>Total active KPI weight (target 100)</div>
   <div class="stat"><span><?= $people ?></span>People to appraise</div>
 </div>
 
@@ -46,19 +59,16 @@ $weightOk = abs($weight - 100) < 0.01;
 </div>
 
 <div class="card">
-  <h2>KPI weight by category</h2>
-  <?php if (!$cats): ?>
-    <p class="muted">No active KPIs yet. <a href="kpi_form.php">Create your first KPI</a>.</p>
-  <?php else: ?>
+  <h2>Active KPIs by perspective</h2>
   <table>
-    <thead><tr><th>Category</th><th>Active KPIs</th><th>Weight</th></tr></thead>
+    <thead><tr><th>Perspective</th><th>Objectives</th><th>Active KPIs</th><th>Sub-total weight</th></tr></thead>
     <tbody>
-    <?php foreach ($cats as $c): ?>
-      <tr><td><?= e($c['category']) ?></td><td><?= (int) $c['n'] ?></td><td><?= e(fmt_num($c['w'])) ?>%</td></tr>
+    <?php foreach ($persp as $name => $p): ?>
+      <tr><td><?= e($name) ?></td><td><?= $p['objectives'] ?></td><td><?= $p['n'] ?></td><td><?= e(fmt_num($p['w'])) ?></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table>
-  <p class="small muted">KPI weights here are defaults. Each appraisal cycle has its own weights, which must total 100%.</p>
-  <?php endif; ?>
+  <?php if ($total === 0): ?><p class="muted">Start by adding <a href="structure.php">objectives and strategic priorities</a>, then <a href="kpi_form.php">KPIs</a>.</p><?php endif; ?>
+  <p class="small muted">Weights here are defaults. Each appraisal cycle has its own weights, which must total 100.</p>
 </div>
 <?php page_footer();

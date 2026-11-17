@@ -7,10 +7,11 @@ function page_header(string $title, string $active = ''): void
         if ($user['role'] === 'admin') {
             $nav = [
                 'dashboard' => ['dashboard.php', 'Dashboard'],
+                'structure' => ['structure.php', 'Objectives & priorities'],
                 'kpis'      => ['kpis.php', 'KPIs'],
                 'cycles'    => ['cycles.php', 'Appraisal cycles'],
                 'users'     => ['users.php', 'Users'],
-                'preview'   => ['preview.php', 'Scorecard preview'],
+                'preview'   => ['preview.php', 'Scorecard'],
             ];
         } else {
             $nav['mine'] = ['my_appraisals.php', 'My appraisals'];

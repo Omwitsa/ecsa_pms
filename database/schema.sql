@@ -12,19 +12,40 @@ CREATE TABLE IF NOT EXISTS users (
   CONSTRAINT fk_users_manager FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS kpis (
+CREATE TABLE IF NOT EXISTS objectives (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  title       VARCHAR(150) NOT NULL,
-  description TEXT NOT NULL,
-  category    VARCHAR(60) NOT NULL DEFAULT 'General',
-  measurement TEXT NOT NULL,
-  target      VARCHAR(120) NOT NULL DEFAULT '',
-  weight      DECIMAL(5,2) NOT NULL DEFAULT 0,
-  scale_min   TINYINT NOT NULL DEFAULT 1,
-  scale_max   TINYINT NOT NULL DEFAULT 5,
-  is_active   TINYINT(1) NOT NULL DEFAULT 1,
-  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  perspective ENUM('Finance/Stewardship','Customer-Operations/Membership','Business Process','Organizational Capacity') NOT NULL,
+  code        VARCHAR(20) NOT NULL,
+  title       VARCHAR(255) NOT NULL,
+  sort_order  INT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_objective_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS priorities (
+  id           INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  objective_id INT UNSIGNED NOT NULL,
+  code         VARCHAR(20) NOT NULL,
+  title        VARCHAR(255) NOT NULL,
+  sort_order   INT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_priority_code (objective_id, code),
+  CONSTRAINT fk_pri_objective FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS kpis (
+  id           INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  priority_id  INT UNSIGNED NOT NULL,
+  title        VARCHAR(500) NOT NULL,
+  key_actions  TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  target       VARCHAR(120) NOT NULL DEFAULT '',
+  weight       DECIMAL(5,2) NOT NULL DEFAULT 0,
+  scale_min    TINYINT NOT NULL DEFAULT 1,
+  scale_max    TINYINT NOT NULL DEFAULT 5,
+  sort_order   INT NOT NULL DEFAULT 0,
+  is_active    TINYINT(1) NOT NULL DEFAULT 1,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_kpi_priority FOREIGN KEY (priority_id) REFERENCES priorities(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS kpi_rating_levels (
@@ -48,14 +69,23 @@ CREATE TABLE IF NOT EXISTS appraisal_cycles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS cycle_kpis (
-  id         INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  cycle_id   INT UNSIGNED NOT NULL,
-  kpi_id     INT UNSIGNED NOT NULL,
-  title      VARCHAR(150) NOT NULL,
-  category   VARCHAR(60) NOT NULL,
-  weight     DECIMAL(5,2) NOT NULL,
-  scale_min  TINYINT NOT NULL,
-  scale_max  TINYINT NOT NULL,
+  id              INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  cycle_id        INT UNSIGNED NOT NULL,
+  kpi_id          INT UNSIGNED NOT NULL,
+  perspective     ENUM('Finance/Stewardship','Customer-Operations/Membership','Business Process','Organizational Capacity') NOT NULL,
+  objective_code  VARCHAR(20) NOT NULL,
+  objective_title VARCHAR(255) NOT NULL,
+  priority_code   VARCHAR(20) NOT NULL,
+  priority_title  VARCHAR(255) NOT NULL,
+  key_actions     TEXT NOT NULL,
+  title           VARCHAR(500) NOT NULL,
+  target          VARCHAR(120) NOT NULL DEFAULT '',
+  weight          DECIMAL(5,2) NOT NULL,
+  scale_min       TINYINT NOT NULL,
+  scale_max       TINYINT NOT NULL,
+  obj_sort        INT NOT NULL DEFAULT 0,
+  pri_sort        INT NOT NULL DEFAULT 0,
+  kpi_sort        INT NOT NULL DEFAULT 0,
   UNIQUE KEY uq_cycle_kpi (cycle_id, kpi_id),
   CONSTRAINT fk_ck_cycle FOREIGN KEY (cycle_id) REFERENCES appraisal_cycles(id) ON DELETE CASCADE,
   CONSTRAINT fk_ck_kpi   FOREIGN KEY (kpi_id)   REFERENCES kpis(id) ON DELETE RESTRICT
@@ -83,6 +113,7 @@ CREATE TABLE IF NOT EXISTS appraisal_scores (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   appraisal_id    INT UNSIGNED NOT NULL,
   cycle_kpi_id    INT UNSIGNED NOT NULL,
+  actual          VARCHAR(255) NULL,
   self_rating     TINYINT NULL,
   self_comment    TEXT NULL,
   manager_rating  TINYINT NULL,

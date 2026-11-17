@@ -28,7 +28,7 @@ if ($id > 0) {
 }
 
 // KPIs that can be chosen: all active ones plus any already in this cycle
-$allKpis = $pdo->query('SELECT * FROM kpis ORDER BY category, title')->fetchAll();
+$allKpis = $pdo->query(kpi_tree_select() . kpi_tree_order())->fetchAll();
 $kpis = array_values(array_filter($allKpis, fn($k) => $k['is_active'] || isset($selected[(int) $k['id']])));
 $kpiById = [];
 foreach ($kpis as $k) {
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $w = trim((string) ($weights[$kid] ?? ''));
         if (!is_numeric($w) || (float) $w < 0 || (float) $w > 100) {
-            $errors[] = 'Weight for "' . $k['title'] . '" must be between 0 and 100.';
+            $errors[] = 'Weight for "' . mb_strimwidth($k['title'], 0, 60, '…') . '" must be between 0 and 100.';
             $w = 0;
         }
         $selected[$kid] = (float) $w;
@@ -88,10 +88,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$cycle['name'], $cycle['description'], $cycle['start_date'], $cycle['end_date']]);
                 $cid = (int) $pdo->lastInsertId();
             }
-            $ins = $pdo->prepare('INSERT INTO cycle_kpis (cycle_id, kpi_id, title, category, weight, scale_min, scale_max) VALUES (?,?,?,?,?,?,?)');
+            $ins = $pdo->prepare('INSERT INTO cycle_kpis (cycle_id, kpi_id, perspective, objective_code, objective_title, priority_code, priority_title,
+                                  key_actions, title, target, weight, scale_min, scale_max, obj_sort, pri_sort, kpi_sort)
+                                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
             foreach ($selected as $kid => $w) {
                 $k = $kpiById[$kid];
-                $ins->execute([$cid, $kid, $k['title'], $k['category'], $w, $k['scale_min'], $k['scale_max']]);
+                $ins->execute([$cid, $kid, $k['perspective'], $k['objective_code'], $k['objective_title'], $k['priority_code'], $k['priority_title'],
+                               $k['key_actions'], $k['title'], $k['target'], $w, $k['scale_min'], $k['scale_max'],
+                               $k['obj_sort'], $k['pri_sort'], $k['sort_order']]);
             }
             $pdo->commit();
             flash('Cycle saved. Review the weights, then open it to start appraisals.');
@@ -128,26 +132,27 @@ page_header($id ? 'Edit cycle' : 'New cycle', 'cycles');
   </div>
 
   <h2>2. KPIs and weights</h2>
-  <p class="muted">Pick the KPIs used in this cycle. Weights are set per cycle and must total <strong>100%</strong> before the cycle can be opened.</p>
+  <p class="muted">Pick the KPIs used in this cycle. Weights are set per cycle and must total <strong>100</strong> before the cycle can be opened.</p>
   <?php if (!$kpis): ?>
     <div class="alert alert-warn">There are no active KPIs. <a href="kpi_form.php">Create KPIs first</a>.</div>
   <?php else: ?>
   <div class="table-wrap">
   <table>
-    <thead><tr><th style="width:50px">Use</th><th>KPI</th><th>Category</th><th>Scale</th><th style="width:130px">Weight (%)</th></tr></thead>
+    <thead><tr><th style="width:50px">Use</th><th>Perspective</th><th>Objective › Priority</th><th>Measure / KPI</th><th>Target</th><th style="width:120px">Weight</th></tr></thead>
     <tbody>
     <?php foreach ($kpis as $k): $kid = (int) $k['id']; $on = isset($selected[$kid]); ?>
       <tr class="<?= $k['is_active'] ? '' : 'inactive' ?>">
         <td><input type="checkbox" class="use" name="kpi[<?= $kid ?>]" value="1" <?= $on ? 'checked' : '' ?>></td>
-        <td><strong><?= e($k['title']) ?></strong><?= $k['is_active'] ? '' : ' <span class="badge off">Inactive</span>' ?></td>
-        <td><?= e($k['category']) ?></td>
-        <td><?= (int) $k['scale_min'] ?>–<?= (int) $k['scale_max'] ?></td>
+        <td class="small"><?= e($k['perspective']) ?></td>
+        <td class="small">Obj. <?= e($k['objective_code']) ?> › <?= e($k['priority_code']) ?></td>
+        <td><?= e($k['title']) ?><?= $k['is_active'] ? '' : ' <span class="badge off">Inactive</span>' ?></td>
+        <td class="small"><?= e($k['target'] ?: '—') ?></td>
         <td><input type="number" class="w" name="weight[<?= $kid ?>]" min="0" max="100" step="0.01"
                    value="<?= e($on ? fmt_num($selected[$kid]) : fmt_num($k['weight'])) ?>"></td>
       </tr>
     <?php endforeach; ?>
     </tbody>
-    <tfoot><tr><td colspan="4" style="text-align:right"><strong>Total selected weight</strong></td><td><strong id="total">0</strong>%</td></tr></tfoot>
+    <tfoot><tr><td colspan="5" style="text-align:right"><strong>Total selected weight</strong></td><td><strong id="total">0</strong></td></tr></tfoot>
   </table>
   </div>
   <?php endif; ?>

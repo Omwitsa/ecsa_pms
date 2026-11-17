@@ -151,3 +151,4 @@ function require_admin(): array
 }
 
 require __DIR__ . '/layout.php';
+require __DIR__ . '/scorecard.php';

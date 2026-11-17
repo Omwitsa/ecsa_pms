@@ -13,6 +13,15 @@ return [
         'charset' => 'utf8mb4',
     ],
 
+    // The four perspectives every KPI belongs to (display order).
+    // Keep identical to the ENUM values in database/schema.sql.
+    'perspectives' => [
+        'Finance/Stewardship',
+        'Customer-Operations/Membership',
+        'Business Process',
+        'Organizational Capacity',
+    ],
+
     // Suggested labels when a KPI uses the 1-5 scale (admin can edit per KPI)
     'default_scale_labels' => [
         1 => 'Unsatisfactory',
@@ -33,7 +42,7 @@ return [
 
     // Created by install.php when the users table is empty. CHANGE THE PASSWORD after first login.
     'default_admin' => [
-        'name'     => 'Admin',
+        'name'     => 'Administrator',
         'email'    => 'admin@newtech.com',
         'password' => 'Admin@12345',
     ],

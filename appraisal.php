@@ -33,12 +33,12 @@ $mgrMode   = ($isReviewer || $isAdmin) && !$isEmployee && $cycleOpen && $ap['sta
 $field     = $selfMode ? 'self' : 'manager';   // fixed column prefix, never user input
 
 /* ---------- Load KPI rows and rating levels ---------- */
-$rs = $pdo->prepare('SELECT s.*, ck.kpi_id, ck.title, ck.category, ck.weight, ck.scale_min, ck.scale_max,
-                            k.description, k.measurement, k.target
+$rs = $pdo->prepare('SELECT s.*, ck.kpi_id, ck.perspective, ck.objective_code, ck.objective_title, ck.priority_code, ck.priority_title,
+                            ck.key_actions, ck.title, ck.target, ck.weight, ck.scale_min, ck.scale_max, k.description
                      FROM appraisal_scores s
                      JOIN cycle_kpis ck ON ck.id = s.cycle_kpi_id
                      JOIN kpis k ON k.id = ck.kpi_id
-                     WHERE s.appraisal_id = ? ORDER BY ck.category, ck.title');
+                     WHERE s.appraisal_id = ?' . ck_order());
 $rs->execute([$id]);
 $rows = $rs->fetchAll();
 
@@ -71,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($selfMode || $mgrMode)) {
     $submit   = ($_POST['action'] ?? '') === 'submit';
     $ratings  = (array) ($_POST['rating'] ?? []);
     $comments = (array) ($_POST['comment'] ?? []);
+    $actuals  = (array) ($_POST['actual'] ?? []);
     $overall  = trim((string) ($_POST['overall_comment'] ?? ''));
 
     foreach ($rows as &$row) {
@@ -80,13 +81,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($selfMode || $mgrMode)) {
         $rating = null;
         if ($raw === '') {
             if ($submit) {
-                $errors[] = 'Please rate: ' . $row['title'];
+                $errors[] = 'Please rate: ' . mb_strimwidth($row['title'], 0, 80, '…');
             }
         } elseif (!ctype_digit($raw) || (int) $raw < (int) $row['scale_min'] || (int) $raw > (int) $row['scale_max']) {
-            $errors[] = 'Invalid rating for: ' . $row['title'];
+            $errors[] = 'Invalid rating for: ' . mb_strimwidth($row['title'], 0, 80, '…');
         } else {
             $rating = (int) $raw;
         }
+        $act = $actuals[$sid] ?? '';
+        $row['actual']            = mb_substr(trim(is_string($act) ? $act : ''), 0, 255);
         $row[$field . '_rating']  = $rating;
         $row[$field . '_comment'] = trim((string) ($comments[$sid] ?? ''));
     }
@@ -95,9 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($selfMode || $mgrMode)) {
     if (!$errors) {
         $pdo->beginTransaction();
         try {
-            $upd = $pdo->prepare("UPDATE appraisal_scores SET {$field}_rating = ?, {$field}_comment = ? WHERE id = ? AND appraisal_id = ?");
+            $upd = $pdo->prepare("UPDATE appraisal_scores SET actual = ?, {$field}_rating = ?, {$field}_comment = ? WHERE id = ? AND appraisal_id = ?");
             foreach ($rows as $row) {
-                $upd->execute([$row[$field . '_rating'], $row[$field . '_comment'], $row['id'], $id]);
+                $upd->execute([$row['actual'] !== '' ? $row['actual'] : null, $row[$field . '_rating'], $row[$field . '_comment'], $row['id'], $id]);
             }
             $pdo->prepare("UPDATE appraisals SET {$field}_comment = ? WHERE id = ?")->execute([$overall, $id]);
 
@@ -124,9 +127,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($selfMode || $mgrMode)) {
     }
 }
 
-$editing    = $selfMode || $mgrMode;
-$showSelf   = $isEmployee || $ap['status'] !== 'pending_self';
-$showMgr    = $ap['status'] === 'completed' || $isReviewer || $isAdmin;
+$editing  = $selfMode || $mgrMode;
+$showSelf = $isEmployee || $ap['status'] !== 'pending_self';
+$showMgr  = $ap['status'] === 'completed' || $isReviewer || $isAdmin;
 
 page_header('Appraisal', $isAdmin ? 'cycles' : ($isEmployee ? 'mine' : 'team'));
 ?>
@@ -148,9 +151,9 @@ page_header('Appraisal', $isAdmin ? 'cycles' : ($isEmployee ? 'mine' : 'team'));
     <div><span class="muted small">Status</span><br><?= status_badge($ap['status']) ?></div>
   </div>
   <?php if ($selfMode): ?>
-    <p class="muted">Rate yourself against each objective using the descriptions provided. Add evidence in the comment box. You can save a draft and return later; once submitted, your self-review is locked.</p>
+    <p class="muted">For each KPI, record the <strong>actual</strong> result against the target, rate your performance using the descriptions provided, and add evidence. You can save a draft and return later; once submitted, your self-review is locked.</p>
   <?php elseif ($mgrMode): ?>
-    <p class="muted">Review the employee's self-ratings and give your own rating for each objective. Submitting calculates the final score and locks the appraisal.</p>
+    <p class="muted">Review the employee's actuals and self-ratings, then give your own rating (actual performance) for each KPI. Submitting calculates the weighted scores and final score and locks the appraisal.</p>
   <?php elseif (!$cycleOpen && $ap['status'] !== 'completed'): ?>
     <p class="muted">This cycle is closed, so this appraisal can no longer be edited.</p>
   <?php elseif ($isEmployee && $ap['status'] === 'pending_manager'): ?>
@@ -161,54 +164,56 @@ page_header('Appraisal', $isAdmin ? 'cycles' : ($isEmployee ? 'mine' : 'team'));
 <?php if ($ap['status'] === 'completed'): ?>
 <div class="card result">
   <div class="score-big"><?= e(fmt_num($ap['final_score'])) ?>%</div>
-  <div><strong><?= e($ap['rating_band']) ?></strong><br><span class="muted small">Weighted final score · completed <?= e(fmt_date($ap['completed_at'])) ?></span></div>
+  <div><strong><?= e($ap['rating_band']) ?></strong><br><span class="muted small">Weighted final score (total weighted score ÷ maximum possible) · completed <?= e(fmt_date($ap['completed_at'])) ?></span></div>
 </div>
 <?php endif; ?>
 
-<?php if ($editing): ?><form method="post"><?= csrf_field() ?><?php endif; ?>
-
-<?php $lastCat = null; foreach ($rows as $row):
+<?php if ($editing): ?>
+<form method="post"><?= csrf_field() ?>
+<?php $lastP = $lastO = $lastQ = null; foreach ($rows as $row):
     $kid = (int) $row['kpi_id']; $sid = (int) $row['id'];
-    if ($row['category'] !== $lastCat): $lastCat = $row['category']; ?>
-      <h2 class="cat"><?= e($lastCat) ?></h2>
-    <?php endif; ?>
+    if ($row['perspective'] !== $lastP) { $lastP = $row['perspective']; $lastO = $lastQ = null; ?>
+      <h2 class="cat"><?= e($lastP) ?></h2>
+    <?php }
+    if ($row['objective_code'] !== $lastO) { $lastO = $row['objective_code']; $lastQ = null; ?>
+      <div class="objective">Objective <?= e($lastO) ?> – <?= e($row['objective_title']) ?></div>
+    <?php }
+    if ($row['priority_code'] !== $lastQ) { $lastQ = $row['priority_code']; ?>
+      <div class="priority"><strong><?= e($lastQ) ?></strong> <?= e($row['priority_title']) ?></div>
+    <?php } ?>
   <div class="card kpi-card">
     <div class="row-between">
       <h3><?= e($row['title']) ?></h3>
-      <span class="badge on">Weight <?= e(fmt_num($row['weight'])) ?>%</span>
+      <span class="badge on">Weight <?= e(fmt_num($row['weight'])) ?></span>
     </div>
-    <?php if ($row['description'] !== ''): ?><p><?= e($row['description']) ?></p><?php endif; ?>
-    <?php if ($row['measurement'] !== ''): ?><p class="small"><strong>Measured by:</strong> <?= e($row['measurement']) ?></p><?php endif; ?>
+    <?php if (trim((string) $row['key_actions']) !== ''): ?><p class="small"><strong>Key actions / initiatives:</strong> <?= nl2br(e($row['key_actions'])) ?></p><?php endif; ?>
     <?php if ($row['target'] !== ''): ?><p class="small"><strong>Target:</strong> <?= e($row['target']) ?></p><?php endif; ?>
+    <?php if ($row['description'] !== ''): ?><p class="small muted"><?= e($row['description']) ?></p><?php endif; ?>
 
-    <?php if ($mgrMode || (!$editing && $showSelf)): ?>
+    <?php if ($mgrMode): ?>
       <div class="ratingline"><span class="muted small">Employee self-rating</span>
         <strong><?= e(rating_text($levels, $kid, $row['self_rating'])) ?></strong>
         <?php if (!empty($row['self_comment'])): ?><div class="small"><?= nl2br(e($row['self_comment'])) ?></div><?php endif; ?></div>
     <?php endif; ?>
 
-    <?php if ($editing): ?>
-      <div class="rating-options">
-        <?php foreach ($levels[$kid] ?? [] as $l): ?>
-          <label class="rating-option">
-            <input type="radio" name="rating[<?= $sid ?>]" value="<?= (int) $l['rating'] ?>" <?= (string) $row[$field . '_rating'] === (string) $l['rating'] ? 'checked' : '' ?>>
-            <span class="rating-pill"><?= (int) $l['rating'] ?></span>
-            <span><strong><?= e($l['label']) ?></strong><br><span class="muted"><?= e($l['description']) ?></span></span>
-          </label>
-        <?php endforeach; ?>
-      </div>
-      <label>Comment / evidence
-        <textarea name="comment[<?= $sid ?>]" rows="2"><?= e($row[$field . '_comment'] ?? '') ?></textarea>
-      </label>
-    <?php elseif ($showMgr): ?>
-      <div class="ratingline"><span class="muted small">Manager rating</span>
-        <strong><?= e(rating_text($levels, $kid, $row['manager_rating'])) ?></strong>
-        <?php if (!empty($row['manager_comment'])): ?><div class="small"><?= nl2br(e($row['manager_comment'])) ?></div><?php endif; ?></div>
-    <?php endif; ?>
+    <label>Actual (G)
+      <input type="text" name="actual[<?= $sid ?>]" value="<?= e($row['actual'] ?? '') ?>" maxlength="255" placeholder="Result achieved against the target">
+    </label>
+    <div class="rating-options">
+      <?php foreach ($levels[$kid] ?? [] as $l): ?>
+        <label class="rating-option">
+          <input type="radio" name="rating[<?= $sid ?>]" value="<?= (int) $l['rating'] ?>" <?= (string) $row[$field . '_rating'] === (string) $l['rating'] ? 'checked' : '' ?>>
+          <span class="rating-pill"><?= (int) $l['rating'] ?></span>
+          <span><strong><?= e($l['label']) ?></strong><br><span class="muted"><?= e($l['description']) ?></span></span>
+        </label>
+      <?php endforeach; ?>
+    </div>
+    <label>Comments / notes (K)
+      <textarea name="comment[<?= $sid ?>]" rows="2"><?= e($row[$field . '_comment'] ?? '') ?></textarea>
+    </label>
   </div>
 <?php endforeach; ?>
 
-<?php if ($editing): ?>
   <div class="card">
     <label>Overall comments
       <textarea name="overall_comment" rows="3"><?= e($overall) ?></textarea>
@@ -220,7 +225,20 @@ page_header('Appraisal', $isAdmin ? 'cycles' : ($isEmployee ? 'mine' : 'team'));
     </div>
   </div>
 </form>
-<?php else: ?>
+
+<?php else:
+    // Read-only: show the scorecard in the sheet layout
+    $tableRows = [];
+    foreach ($rows as $r) {
+        $rating = $showMgr ? $r['manager_rating'] : ($showSelf ? $r['self_rating'] : null);
+        $parts = [];
+        if ($showSelf && !empty($r['self_comment'])) { $parts[] = 'Employee: ' . $r['self_comment']; }
+        if ($showMgr && !empty($r['manager_comment'])) { $parts[] = 'Manager: ' . $r['manager_comment']; }
+        $tableRows[] = $r + ['rating' => $rating, 'comment' => implode("\n", $parts)];
+    } ?>
+  <div class="card">
+    <?php render_scorecard($tableRows, ['values' => true, 'perf_label' => $showMgr ? 'Actual perf. (I)' : 'Actual perf. (I) – your self-rating']); ?>
+  </div>
   <?php if ($showSelf && !empty($ap['self_comment'])): ?>
     <div class="card"><h3>Employee's overall comments</h3><p><?= nl2br(e($ap['self_comment'])) ?></p></div>
   <?php endif; ?>
